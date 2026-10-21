@@ -34,3 +34,5 @@ code{color:#ffc0a8;background:#ffffff0b;border-radius:4px;padding:2px 4px}
 #backtestBody td{font-size:12px}
 #backtestBody td:first-child{min-width:160px}
 @media(max-width:700px){.lab-grid{grid-template-columns:1fr}.lab-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.field-grid{grid-template-columns:1fr}.lab-card{padding:15px}}
+
+.ot-day-games{display:grid;gap:8px;margin:12px 0}.ot-day-row{display:flex;flex-direction:column;gap:4px;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:#ffffff04;font-size:12px}.ot-day-row>span:first-child{font-weight:750}.lab-card #otDateInput{display:block;width:100%;max-width:none;margin:8px 0 12px;background:var(--bg);border:1px solid var(--line);color:var(--text);padding:10px;border-radius:9px}.lab-card #syncDayBtn{width:100%;margin:6px 0 10px}.lab-card #syncDayBtn:disabled{opacity:.65;cursor:wait}

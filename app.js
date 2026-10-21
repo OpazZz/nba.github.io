@@ -77,7 +77,7 @@ setInterval(()=>{if(state.date===localDate())loadGames();},60000);
 
 
 // Overtime Lab — local-only historical analysis and fictional backtest.
-const OT_STORAGE_KEY = "nbaPulseOvertimeHistoryV1";
+const OT_STORAGE_KEY = "nbaPulseOvertimeHistoryV2";
 const OT_PRIOR_RATE = 0.044; // weak starting prior; replace progressively with imported historical data
 const OT_PRIOR_WEIGHT = 30;
 let otGames = loadOtGames();
@@ -85,7 +85,7 @@ let otBacktest = null;
 
 function loadOtGames(){
   try {
-    const rows = JSON.parse(localStorage.getItem(OT_STORAGE_KEY) || "[]");
+    const rows = JSON.parse(localStorage.getItem(OT_STORAGE_KEY) || localStorage.getItem("nbaPulseOvertimeHistoryV1") || "[]");
     return Array.isArray(rows) ? rows.filter(g => g && Number.isFinite(g.ot === true ? 1 : g.ot === false ? 0 : NaN)) : [];
   } catch { return []; }
 }
@@ -131,7 +131,7 @@ function normalizeOtRow(row){
   return {date,home,away,quarters:q,homeReg,awayReg,ot:homeReg===awayReg,odds:odds&&odds>1?odds:null};
 }
 function renderOvertimeSummary(){
-  $("importStatus").textContent=otGames.length?`${otGames.length} match(s) importé(s) et conservé(s) sur cet appareil.`:"Aucun historique importé.";
+  $("importStatus").textContent=otGames.length?`${otGames.length} match(s) synchronisé(s) et conservé(s) sur cet appareil.`:"Aucun historique synchronisé.";
   $("metricGames").textContent=otGames.length;
   const count=otGames.filter(g=>g.ot).length;
   $("metricOT").textContent=otGames.length?`${count} (${(100*count/otGames.length).toFixed(2)} %)`:"—";
@@ -171,30 +171,78 @@ function runOtBacktest(){
   $("backtestBody").innerHTML=rows.slice(-300).reverse().map(({g,p,decision,result,gain})=>`<tr><td>${safe(g.date)}<br><span class="small muted">${safe(g.away)} @ ${safe(g.home)}</span></td><td>${(100*p).toFixed(2)} %</td><td>${g.odds?g.odds.toFixed(2):"—"}</td><td class="${decision==="PARI fictif"?"record":""}">${decision}</td><td>${result==="Gagné"?'<span class="record">Gagné</span>':result==="Perdu"?'<span class="loss">Perdu</span>':safe(result)}</td><td>${gain===null?"—":`<span class="${gain>=0?"record":"loss"}">${money(gain)}</span>`}</td></tr>`).join("")||'<tr><td colspan="6">Aucun résultat.</td></tr>';
   $("backtestStatus").textContent=`Test chronologique terminé : ${scored} match(s) évalué(s), ${bets} pari(s) fictif(s). Affichage des 300 derniers matchs au maximum.`;
 }
-$("overtimeFile").addEventListener("change",async e=>{
-  const file=e.target.files?.[0];if(!file)return;
+// Import des résultats d'une journée depuis le calendrier ESPN. Seuls les matchs
+// terminés avec les scores individuels des quatre périodes sont ajoutés à l'historique.
+const otDateInput = $("otDateInput");
+if (otDateInput) otDateInput.value = state.date;
+function extractCompetitors(data){
+  const candidates = [data?.header?.competitions?.[0]?.competitors, data?.boxscore?.teams?.flatMap(t=>t.team?[]:[])];
+  for (const list of candidates) if (Array.isArray(list) && list.length >= 2) return list;
+  return [];
+}
+function getQuarterScores(summary, event){
+  const lists = [
+    summary?.header?.competitions?.[0]?.competitors,
+    summary?.gamepackageJSON?.header?.competitions?.[0]?.competitors,
+    event?.competitions?.[0]?.competitors
+  ].filter(list=>Array.isArray(list)&&list.length>=2);
+  const scoreVal = x => Number(typeof x === "object" ? (x.value ?? x.displayValue ?? x.score) : x);
+  for(const competitors of lists){
+    const home = competitors.find(t=>t.homeAway==="home") || competitors[0];
+    const away = competitors.find(t=>t.homeAway==="away") || competitors[1];
+    const homeLines = Array.isArray(home?.linescores) ? home.linescores : (home?.linescores?.items || []);
+    const awayLines = Array.isArray(away?.linescores) ? away.linescores : (away?.linescores?.items || []);
+    const h = homeLines.map(scoreVal).filter(Number.isFinite).slice(0,4);
+    const a = awayLines.map(scoreVal).filter(Number.isFinite).slice(0,4);
+    if(h.length>=4 && a.length>=4) return {home,away,quarters:h.map((v,i)=>[v,a[i]])};
+  }
+  return null;
+}
+async function syncOvertimeDay(){
+  const date = otDateInput?.value;
+  if(!date){$("syncStatus").textContent="Choisis une date valide.";return;}
+  const btn=$("syncDayBtn");btn.disabled=true;btn.textContent="Synchronisation…";
+  $("syncStatus").textContent="Chargement du calendrier et des scores quart par quart…";
+  $("otDayGames").innerHTML="";
   try{
-    const parsed=parseCSV(await file.text());
-    if(!parsed.length)throw new Error("Le CSV est vide ou son séparateur n’a pas été reconnu.");
-    const normalized=parsed.map(normalizeOtRow);
-    const key=g=>`${g.date}|${g.home}|${g.away}`;
-    const merged=new Map(otGames.map(g=>[key(g),g]));
-    normalized.forEach(g=>merged.set(key(g),g));
+    const day=date.replaceAll("-","");
+    const data=await getJson(`${API}/scoreboard?dates=${day}`);
+    const events=data.events||[];
+    if(!events.length){$("syncStatus").textContent="Aucun match trouvé pour cette journée.";return;}
+    let added=0, skipped=0;
+    const merged=new Map(otGames.map(g=>[g.gameId?`id:${g.gameId}`:`${g.date}|${g.home}|${g.away}`,g]));
+    const dayRows=[];
+    for(const event of events){
+      const status=event.status?.type||{};
+      const comp=event.competitions?.[0]||{};
+      const teams=comp.competitors||[];
+      const home=teams.find(t=>t.homeAway==="home")||teams[0]||{};
+      const away=teams.find(t=>t.homeAway==="away")||teams[1]||{};
+      const label=`${away.team?.displayName||away.displayName||"Extérieur"} @ ${home.team?.displayName||home.displayName||"Domicile"}`;
+      if(!status.completed){dayRows.push({label,status:status.shortDetail||status.description||"À venir",added:false});continue;}
+      try{
+        const summary=await getJson(`${API}/summary?event=${encodeURIComponent(event.id)}`);
+        const result=getQuarterScores(summary,event);
+        if(!result){skipped++;dayRows.push({label,status:"Terminé · scores par quart indisponibles",added:false});continue;}
+        const quarters=result.quarters;
+        const homeReg=quarters.reduce((sum,q)=>sum+q[0],0),awayReg=quarters.reduce((sum,q)=>sum+q[1],0);
+        const record={gameId:String(event.id),date:String(event.date||date).slice(0,10),home:result.home?.team?.displayName||result.home?.displayName||home.team?.displayName||home.displayName||"Domicile",away:result.away?.team?.displayName||result.away?.displayName||away.team?.displayName||away.displayName||"Extérieur",quarters,homeReg,awayReg,ot:homeReg===awayReg,odds:null,source:"ESPN",syncedAt:new Date().toISOString()};
+        merged.set(`id:${record.gameId}`,record);added++;dayRows.push({label,status:record.ot?"Terminé · prolongation":"Terminé · pas de prolongation",added:true});
+      }catch(err){skipped++;dayRows.push({label,status:"Résultat détaillé indisponible",added:false});}
+    }
     otGames=[...merged.values()].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
     saveOtGames();otBacktest=null;renderOvertimeSummary();
-    $("backtestBody").innerHTML='<tr><td colspan="6">Historique importé. Lance le backtest.</td></tr>';
-    $("backtestStatus").textContent="Prêt pour le backtest.";
-  }catch(err){$("importStatus").textContent=`Import impossible : ${err.message}`;}
-  e.target.value="";
-});
+    $("otDayGames").innerHTML=dayRows.map(g=>`<div class="ot-day-row"><span>${safe(g.label)}</span><span class="small ${g.added?"record":"muted"}">${safe(g.status)}</span></div>`).join("");
+    $("syncStatus").textContent=`Journée traitée : ${added} match(s) ajouté(s)/actualisé(s), ${skipped} résultat(s) non exploitable(s). ${events.length} match(s) au calendrier.`;
+    $("backtestBody").innerHTML='<tr><td colspan="6">Historique actualisé. Lance le backtest pour recalculer les statistiques.</td></tr>';
+    $("backtestStatus").textContent=otGames.length>=2?"Historique prêt : lance le backtest.":"Synchronise d’autres journées terminées pour constituer un historique suffisant.";
+  }catch(err){$("syncStatus").textContent=`Synchronisation impossible : ${err.message}. Vérifie la connexion ou réessaie plus tard.`;}
+  finally{btn.disabled=false;btn.textContent="Récupérer les résultats de cette journée";}
+}
+$("syncDayBtn").addEventListener("click",syncOvertimeDay);
 $("runBacktestBtn").addEventListener("click",runOtBacktest);
 $("clearHistoryBtn").addEventListener("click",()=>{
   if(!confirm("Effacer tous les matchs historiques Overtime Lab enregistrés sur cet appareil ?"))return;
   otGames=[];otBacktest=null;saveOtGames();$("backtestBody").innerHTML='<tr><td colspan="6">Aucun backtest lancé.</td></tr>';$("backtestStatus").textContent="Historique effacé.";renderOvertimeSummary();
-});
-$("downloadTemplateBtn").addEventListener("click",()=>{
-  const csv="date,home,away,q1_home,q1_away,q2_home,q2_away,q3_home,q3_away,q4_home,q4_away,odds_over\n2025-10-21,Team A,Team B,28,25,24,27,30,26,22,26,";
-  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");
-  a.href=url;a.download="nba-overtime-template.csv";a.click();URL.revokeObjectURL(url);
 });
 renderOvertimeSummary();

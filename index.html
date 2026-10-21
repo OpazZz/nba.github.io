@@ -68,14 +68,16 @@
       <p class="muted lab-intro">Teste un modèle de probabilité de prolongation sur des matchs historiques. Toutes les mises sont fictives : aucune connexion bookmaker, aucun argent réel.</p>
       <div class="lab-grid">
         <article class="lab-card">
-          <div class="eyebrow">1 · DONNÉES HISTORIQUES</div>
-          <h3>Importer un CSV</h3>
-          <p class="small muted">Un match par ligne, avec les scores des 4 quarts et, si disponible, la cote décimale pré-match du pari « prolongation : oui ».</p>
-          <label class="file-label" for="overtimeFile">Choisir un fichier CSV</label>
-          <input id="overtimeFile" type="file" accept=".csv,text/csv">
-          <button id="downloadTemplateBtn" class="secondary-btn">Télécharger le modèle CSV</button>
-          <div id="importStatus" class="small muted" role="status">Aucun historique importé.</div>
-          <button id="clearHistoryBtn" class="secondary-btn danger-btn">Effacer l’historique importé</button>
+          <div class="eyebrow">1 · CALENDRIER NBA</div>
+          <h3>Synchroniser une journée</h3>
+          <p class="small muted">Choisis une date du calendrier NBA. Les matchs terminés sont récupérés automatiquement et ajoutés à ton historique local s’ils contiennent les scores des quatre quarts-temps.</p>
+          <label class="file-label" for="otDateInput">Journée NBA</label>
+          <input id="otDateInput" type="date">
+          <button id="syncDayBtn" class="primary-btn">Récupérer les résultats de cette journée</button>
+          <div id="syncStatus" class="small muted" role="status">Sélectionne une journée pour commencer.</div>
+          <div id="otDayGames" class="ot-day-games"></div>
+          <div id="importStatus" class="small muted" role="status">Aucun historique synchronisé.</div>
+          <button id="clearHistoryBtn" class="secondary-btn danger-btn">Effacer l’historique local</button>
         </article>
         <article class="lab-card">
           <div class="eyebrow">2 · PARAMÈTRES DU TEST</div>
@@ -108,8 +110,8 @@
         <p class="small muted">Le ROI n’est calculé que pour les lignes avec une cote historique fournie. Des cotes reconstituées après coup rendraient le test biaisé.</p>
       </div>
       <div class="lab-card">
-        <div class="eyebrow">FORMAT CSV ATTENDU</div>
-        <p class="small muted">Colonnes : <code>date,home,away,q1_home,q1_away,q2_home,q2_away,q3_home,q3_away,q4_home,q4_away,odds_over</code>. Les scores q1 à q4 sont les scores de chaque quart-temps (pas les cumuls). Le résultat « prolongation » est déterminé si les scores cumulés après le 4e quart sont égaux. Laisse <code>odds_over</code> vide si tu ne disposes pas d’une cote pré-match archivée.</p>
+        <div class="eyebrow">À SAVOIR</div>
+        <p class="small muted">Les résultats sont enregistrés uniquement sur cet appareil. Sélectionner une date passée permet de compléter progressivement l’historique. Les cotes pré-match ne sont pas fournies par cette synchronisation : le modèle peut donc être évalué sur ses probabilités, mais pas calculer un ROI historique fiable sans cotes archivées. La disponibilité des scores quart par quart dépend de la source publique ESPN.</p>
       </div>
     </section>
     <footer><span>NBA PULSE</span><span>Scores fournis par ESPN • Usage informatif</span></footer>
