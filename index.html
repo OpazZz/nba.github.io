@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#10131b">
-  <meta name="description" content="Scores NBA et statistiques des équipes, dans une application installable.">
+  <meta name="description" content="Scores NBA, statistiques et laboratoire de simulation des prolongations.">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
-  <title>NBA Pulse — Scores & équipes</title>
+  <title>NBA Pulse — Overtime Lab</title>
 </head>
 <body>
   <header class="topbar">
@@ -29,6 +29,7 @@
       <button class="tab active" data-tab="scores">Matchs</button>
       <button class="tab" data-tab="standings">Classements</button>
       <button class="tab" data-tab="favorites">Favoris <span id="favCount">0</span></button>
+      <button class="tab" data-tab="overtime">Overtime Lab</button>
     </nav>
     <section id="status" class="notice" role="status">Récupération des données NBA…</section>
     <section id="scoresPanel" class="panel">
@@ -59,6 +60,57 @@
       <div class="section-heading"><div><div class="eyebrow">TON SUIVI</div><h2>Équipes favorites</h2></div></div>
       <p class="muted">Ajoute une équipe avec ☆ depuis un match ou le classement pour la retrouver ici.</p>
       <div id="favoritesList" class="games-list"></div>
+    </section>
+    <section id="overtimePanel" class="panel" hidden>
+      <div class="section-heading">
+        <div><div class="eyebrow">LABORATOIRE STATISTIQUE</div><h2>NBA Pulse <em>Overtime Lab</em></h2></div>
+      </div>
+      <p class="muted lab-intro">Teste un modèle de probabilité de prolongation sur des matchs historiques. Toutes les mises sont fictives : aucune connexion bookmaker, aucun argent réel.</p>
+      <div class="lab-grid">
+        <article class="lab-card">
+          <div class="eyebrow">1 · DONNÉES HISTORIQUES</div>
+          <h3>Importer un CSV</h3>
+          <p class="small muted">Un match par ligne, avec les scores des 4 quarts et, si disponible, la cote décimale pré-match du pari « prolongation : oui ».</p>
+          <label class="file-label" for="overtimeFile">Choisir un fichier CSV</label>
+          <input id="overtimeFile" type="file" accept=".csv,text/csv">
+          <button id="downloadTemplateBtn" class="secondary-btn">Télécharger le modèle CSV</button>
+          <div id="importStatus" class="small muted" role="status">Aucun historique importé.</div>
+          <button id="clearHistoryBtn" class="secondary-btn danger-btn">Effacer l’historique importé</button>
+        </article>
+        <article class="lab-card">
+          <div class="eyebrow">2 · PARAMÈTRES DU TEST</div>
+          <h3>Simulation fictive</h3>
+          <div class="field-grid">
+            <label>Mise fictive (€)<input id="stakeInput" type="number" min="0.01" step="0.01" value="10"></label>
+            <label>Avantage minimal (points de probabilité)<input id="edgeInput" type="number" min="0" max="50" step="0.5" value="2"></label>
+          </div>
+          <p class="small muted">Le modèle v1 utilise uniquement le taux historique connu avant chaque match (validation chronologique). Il ne prétend pas prédire les équipes individuellement.</p>
+          <button id="runBacktestBtn" class="primary-btn">Lancer le backtest</button>
+          <div id="backtestStatus" class="small muted" role="status">Importe un historique pour commencer.</div>
+        </article>
+      </div>
+      <div class="lab-metrics" id="overtimeMetrics">
+        <article class="metric-card"><span>Matchs analysés</span><strong id="metricGames">0</strong></article>
+        <article class="metric-card"><span>Prolongations</span><strong id="metricOT">—</strong></article>
+        <article class="metric-card"><span>Taux historique</span><strong id="metricRate">—</strong></article>
+        <article class="metric-card"><span>Score de Brier*</span><strong id="metricBrier">—</strong></article>
+      </div>
+      <p class="small muted">* Le score de Brier mesure l’erreur probabiliste (plus bas est meilleur). Les premiers matchs servent à initialiser le modèle et ne sont pas évalués.</p>
+      <div class="lab-card results-card">
+        <div class="section-heading compact-heading"><div><div class="eyebrow">RÉSULTATS DU BACKTEST</div><h3>Simulation à mise fixe</h3></div></div>
+        <div class="table-wrap"><table><thead><tr><th>Match</th><th>Probabilité estimée</th><th>Cote</th><th>Décision</th><th>Résultat</th><th>Gain fictif</th></tr></thead><tbody id="backtestBody"><tr><td colspan="6">Aucun backtest lancé.</td></tr></tbody></table></div>
+        <div class="lab-metrics compact-metrics">
+          <article class="metric-card"><span>Paris fictifs</span><strong id="metricBets">0</strong></article>
+          <article class="metric-card"><span>Réussite des paris</span><strong id="metricHitRate">—</strong></article>
+          <article class="metric-card"><span>Solde fictif</span><strong id="metricProfit">—</strong></article>
+          <article class="metric-card"><span>ROI fictif</span><strong id="metricROI">—</strong></article>
+        </div>
+        <p class="small muted">Le ROI n’est calculé que pour les lignes avec une cote historique fournie. Des cotes reconstituées après coup rendraient le test biaisé.</p>
+      </div>
+      <div class="lab-card">
+        <div class="eyebrow">FORMAT CSV ATTENDU</div>
+        <p class="small muted">Colonnes : <code>date,home,away,q1_home,q1_away,q2_home,q2_away,q3_home,q3_away,q4_home,q4_away,odds_over</code>. Les scores q1 à q4 sont les scores de chaque quart-temps (pas les cumuls). Le résultat « prolongation » est déterminé si les scores cumulés après le 4e quart sont égaux. Laisse <code>odds_over</code> vide si tu ne disposes pas d’une cote pré-match archivée.</p>
+      </div>
     </section>
     <footer><span>NBA PULSE</span><span>Scores fournis par ESPN • Usage informatif</span></footer>
   </main>

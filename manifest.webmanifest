@@ -1,7 +1,7 @@
 {
-  "name": "NBA Pulse — Scores & équipes",
+  "name": "NBA Pulse — Overtime Lab",
   "short_name": "NBA Pulse",
-  "description": "Scores NBA et bilans des équipes",
+  "description": "Scores NBA, statistiques et simulation des prolongations",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

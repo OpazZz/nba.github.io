@@ -61,7 +61,7 @@ function renderStandings(){
  body.innerHTML=list.map((t,i)=>`<tr><td class="rank">${i+1}</td><td><div class="standing-team"><button class="fav-btn" data-fav="${safe(t.id)}">${state.favorites.includes(String(t.id))?"★":"☆"}</button><span>${safe(t.name)}</span></div></td><td>${t.played}</td><td class="record">${t.wins}</td><td>${t.losses}</td><td>${t.draws}</td><td class="winpct">${t.pct.toFixed(3)}</td><td>${t.drawPct.toFixed(1)}%</td><td>${safe(t.last10)}</td></tr>`).join("");
  body.querySelectorAll("[data-fav]").forEach(b=>b.addEventListener("click",()=>toggleFavorite(b.dataset.fav)));
 }
-function switchTab(tab){state.tab=tab;document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));$("scoresPanel").hidden=tab!=="scores";$("standingsPanel").hidden=tab!=="standings";$("favoritesPanel").hidden=tab!=="favorites";if(tab==="favorites")renderGames();}
+function switchTab(tab){state.tab=tab;document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));$("scoresPanel").hidden=tab!=="scores";$("standingsPanel").hidden=tab!=="standings";$("favoritesPanel").hidden=tab!=="favorites";$("overtimePanel").hidden=tab!=="overtime";if(tab==="favorites")renderGames();if(tab==="overtime")renderOvertimeSummary();}
 document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>switchTab(b.dataset.tab)));
 document.querySelectorAll("[data-filter]").forEach(b=>b.addEventListener("click",()=>{state.filter=b.dataset.filter;document.querySelectorAll("[data-filter]").forEach(x=>x.classList.toggle("active",x===b));renderGames();}));
 document.querySelectorAll("[data-conf]").forEach(b=>b.addEventListener("click",()=>{state.conference=b.dataset.conf;document.querySelectorAll("[data-conf]").forEach(x=>x.classList.toggle("active",x===b));renderStandings();}));
@@ -74,3 +74,127 @@ $("installBtn").addEventListener("click",async()=>{if(!installPrompt)return;inst
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
 refresh();
 setInterval(()=>{if(state.date===localDate())loadGames();},60000);
+
+
+// Overtime Lab — local-only historical analysis and fictional backtest.
+const OT_STORAGE_KEY = "nbaPulseOvertimeHistoryV1";
+const OT_PRIOR_RATE = 0.044; // weak starting prior; replace progressively with imported historical data
+const OT_PRIOR_WEIGHT = 30;
+let otGames = loadOtGames();
+let otBacktest = null;
+
+function loadOtGames(){
+  try {
+    const rows = JSON.parse(localStorage.getItem(OT_STORAGE_KEY) || "[]");
+    return Array.isArray(rows) ? rows.filter(g => g && Number.isFinite(g.ot === true ? 1 : g.ot === false ? 0 : NaN)) : [];
+  } catch { return []; }
+}
+function saveOtGames(){
+  try { localStorage.setItem(OT_STORAGE_KEY, JSON.stringify(otGames)); return true; }
+  catch { $("importStatus").textContent = "Stockage local saturé : exporte ou réduis le fichier."; return false; }
+}
+function parseCSV(text){
+  const first = text.split(/\r?\n/,1)[0] || "";
+  const delimiter = (first.match(/;/g)||[]).length > (first.match(/,/g)||[]).length ? ";" : ",";
+  const rows=[]; let row=[], cell="", quoted=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(c==='"' && quoted && text[i+1]==='"'){cell+='"';i++;}
+    else if(c==='"'){quoted=!quoted;}
+    else if(c===delimiter && !quoted){row.push(cell.trim());cell="";}
+    else if((c==="\n"||c==="\r")&&!quoted){if(c==="\r"&&text[i+1]==="\n")i++;row.push(cell.trim());if(row.some(v=>v!==""))rows.push(row);row=[];cell="";}
+    else cell+=c;
+  }
+  if(cell.length||row.length){row.push(cell.trim());if(row.some(v=>v!==""))rows.push(row);}
+  if(!rows.length) return [];
+  const headers=rows.shift().map(h=>h.trim().toLowerCase().replace(/^\uFEFF/,"").replace(/[ -]/g,"_"));
+  return rows.map((cells,index)=>{const obj={};headers.forEach((h,i)=>obj[h]=cells[i]??"");obj._line=index+2;return obj;});
+}
+function numField(obj, ...names){
+  for(const name of names){if(obj[name]!==undefined&&String(obj[name]).trim()!==""){const n=Number(String(obj[name]).replace(",","."));if(Number.isFinite(n))return n;}}
+  return null;
+}
+function normalizeOtRow(row){
+  const q=[];
+  for(let i=1;i<=4;i++){
+    const h=numField(row,`q${i}_home`,`q${i}_dom`,`q${i}_h`);
+    const a=numField(row,`q${i}_away`,`q${i}_ext`,`q${i}_a`);
+    if(h===null||a===null||h<0||a<0)throw new Error(`Ligne ${row._line}: scores du quart ${i} manquants ou invalides.`);
+    q.push([h,a]);
+  }
+  const home=String(row.home||row.domicile||"").trim(), away=String(row.away||row.exterieur||"").trim();
+  const date=String(row.date||row.game_date||"").trim();
+  if(!home||!away||!date)throw new Error(`Ligne ${row._line}: date, home et away sont obligatoires.`);
+  const homeReg=q.reduce((sum,x)=>sum+x[0],0), awayReg=q.reduce((sum,x)=>sum+x[1],0);
+  const odds=numField(row,"odds_over","cote_prolongation","odds","odds_yes");
+  if(odds!==null&&odds<=1)throw new Error(`Ligne ${row._line}: la cote doit être supérieure à 1.`);
+  return {date,home,away,quarters:q,homeReg,awayReg,ot:homeReg===awayReg,odds:odds&&odds>1?odds:null};
+}
+function renderOvertimeSummary(){
+  $("importStatus").textContent=otGames.length?`${otGames.length} match(s) importé(s) et conservé(s) sur cet appareil.`:"Aucun historique importé.";
+  $("metricGames").textContent=otGames.length;
+  const count=otGames.filter(g=>g.ot).length;
+  $("metricOT").textContent=otGames.length?`${count} (${(100*count/otGames.length).toFixed(2)} %)`:"—";
+  $("metricRate").textContent=otGames.length?`${(100*count/otGames.length).toFixed(2)} %`:"—";
+  if(!otBacktest){$("metricBrier").textContent="—";$("metricBets").textContent="0";$("metricHitRate").textContent="—";$("metricProfit").textContent="—";$("metricROI").textContent="—";}
+}
+function money(n){return `${n<0?"−":""}${Math.abs(n).toFixed(2).replace(".",",")} €`;}
+function runOtBacktest(){
+  if(otGames.length<2){$("backtestStatus").textContent="Importe au moins 2 matchs valides pour lancer le test.";return;}
+  const stake=Number($("stakeInput").value), edge=Math.max(0,Number($("edgeInput").value)||0)/100;
+  if(!Number.isFinite(stake)||stake<=0){$("backtestStatus").textContent="La mise fictive doit être supérieure à 0 €.";return;}
+  const games=[...otGames].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  let seen=0, otSeen=0, brier=0, scored=0, bets=0, wins=0, profit=0, staked=0;
+  const rows=[];
+  for(const g of games){
+    // Probability is based only on games earlier in chronological order.
+    const p=(otSeen+OT_PRIOR_RATE*OT_PRIOR_WEIGHT)/(seen+OT_PRIOR_WEIGHT);
+    const eligible=seen>=10;
+    const shouldBet=eligible&&g.odds&&p>1/g.odds+edge;
+    let result="Pas de pari", gain=null;
+    if(eligible){brier+=(p-(g.ot?1:0))**2;scored++;}
+    if(shouldBet){
+      bets++;staked+=stake;
+      if(g.ot){wins++;gain=stake*(g.odds-1);}else gain=-stake;
+      profit+=gain;result=g.ot?"Gagné":"Perdu";
+    } else if(!g.odds) result="Sans cote";
+    else if(!eligible) result="Initialisation";
+    rows.push({g,p,decision:shouldBet?"PARI fictif":"—",result,gain});
+    seen++;if(g.ot)otSeen++;
+  }
+  otBacktest={rows,brier:scored?brier/scored:null,bets,wins,profit,staked,hitRate:bets?wins/bets:null,roi:staked?profit/staked:null,scored};
+  $("metricBrier").textContent=otBacktest.brier===null?"—":otBacktest.brier.toFixed(4);
+  $("metricBets").textContent=bets;
+  $("metricHitRate").textContent=bets?`${(100*wins/bets).toFixed(1)} %`:"—";
+  $("metricProfit").textContent=money(profit);
+  $("metricROI").textContent=staked?`${(100*profit/staked).toFixed(1)} %`:"—";
+  $("backtestBody").innerHTML=rows.slice(-300).reverse().map(({g,p,decision,result,gain})=>`<tr><td>${safe(g.date)}<br><span class="small muted">${safe(g.away)} @ ${safe(g.home)}</span></td><td>${(100*p).toFixed(2)} %</td><td>${g.odds?g.odds.toFixed(2):"—"}</td><td class="${decision==="PARI fictif"?"record":""}">${decision}</td><td>${result==="Gagné"?'<span class="record">Gagné</span>':result==="Perdu"?'<span class="loss">Perdu</span>':safe(result)}</td><td>${gain===null?"—":`<span class="${gain>=0?"record":"loss"}">${money(gain)}</span>`}</td></tr>`).join("")||'<tr><td colspan="6">Aucun résultat.</td></tr>';
+  $("backtestStatus").textContent=`Test chronologique terminé : ${scored} match(s) évalué(s), ${bets} pari(s) fictif(s). Affichage des 300 derniers matchs au maximum.`;
+}
+$("overtimeFile").addEventListener("change",async e=>{
+  const file=e.target.files?.[0];if(!file)return;
+  try{
+    const parsed=parseCSV(await file.text());
+    if(!parsed.length)throw new Error("Le CSV est vide ou son séparateur n’a pas été reconnu.");
+    const normalized=parsed.map(normalizeOtRow);
+    const key=g=>`${g.date}|${g.home}|${g.away}`;
+    const merged=new Map(otGames.map(g=>[key(g),g]));
+    normalized.forEach(g=>merged.set(key(g),g));
+    otGames=[...merged.values()].sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    saveOtGames();otBacktest=null;renderOvertimeSummary();
+    $("backtestBody").innerHTML='<tr><td colspan="6">Historique importé. Lance le backtest.</td></tr>';
+    $("backtestStatus").textContent="Prêt pour le backtest.";
+  }catch(err){$("importStatus").textContent=`Import impossible : ${err.message}`;}
+  e.target.value="";
+});
+$("runBacktestBtn").addEventListener("click",runOtBacktest);
+$("clearHistoryBtn").addEventListener("click",()=>{
+  if(!confirm("Effacer tous les matchs historiques Overtime Lab enregistrés sur cet appareil ?"))return;
+  otGames=[];otBacktest=null;saveOtGames();$("backtestBody").innerHTML='<tr><td colspan="6">Aucun backtest lancé.</td></tr>';$("backtestStatus").textContent="Historique effacé.";renderOvertimeSummary();
+});
+$("downloadTemplateBtn").addEventListener("click",()=>{
+  const csv="date,home,away,q1_home,q1_away,q2_home,q2_away,q3_home,q3_away,q4_home,q4_away,odds_over\n2025-10-21,Team A,Team B,28,25,24,27,30,26,22,26,";
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download="nba-overtime-template.csv";a.click();URL.revokeObjectURL(url);
+});
+renderOvertimeSummary();

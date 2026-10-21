@@ -1,21 +1,33 @@
-# NBA Pulse — première version PWA
+# NBA Pulse V3 — Overtime Lab
 
-Application web progressive installable sur Android et iPhone, avec scores par date, filtres de matchs, classements Est/Ouest et favoris d'équipes.
+PWA statique en français pour consulter les scores NBA et tester un modèle statistique de prolongation en simulation uniquement.
 
-## Mise en ligne sur GitHub Pages
-1. Décompressez l'archive.
-2. Copiez **le contenu** du dossier `nba-stats-pwa` à la racine d'un nouveau dépôt GitHub.
-3. Dans **Settings → Pages**, choisissez `Deploy from a branch`, branche `main`, dossier `/(root)`.
-4. Ouvrez l'URL HTTPS publiée. Sur Android, utilisez le menu Chrome → **Installer l'application** / **Ajouter à l'écran d'accueil**. Sur iPhone, ouvrez le site dans Safari → **Partager** → **Sur l'écran d'accueil**.
+## Fonctionnalités conservées
+- Scores et calendrier via l’API publique ESPN.
+- Classements et équipes favorites.
+- Application installable (PWA).
 
-## Données NBA
-La version initiale interroge les endpoints publics ESPN depuis le navigateur. Leur disponibilité, format et politique CORS ne sont pas garantis et peuvent changer. Si les classements ne remontent pas ou si la source bloque l'application, il faudra brancher une API NBA documentée ou un proxy serveur. Ne placez jamais une clé API privée dans `app.js` ou un dépôt public.
+## Nouveau : Overtime Lab
+- Import d’un historique CSV de matchs NBA.
+- Détection d’une prolongation si les scores cumulés à la fin des quatre quarts sont à égalité.
+- Modèle v1 de référence basé uniquement sur le taux de prolongations antérieur, avec un a priori faible de 4,4 % et un poids initial de 30 matchs.
+- Backtest chronologique : chaque probabilité est calculée à partir des matchs précédents uniquement; les 10 premiers matchs servent à l’initialisation et ne sont pas évalués.
+- Mesure du score de Brier, nombre de paris fictifs, taux de réussite, solde et ROI fictifs lorsque les cotes historiques sont disponibles.
+- Mise fictive par défaut : 10 €. Seuil d’avantage ajustable.
+- Historique stocké uniquement dans le stockage local du navigateur.
 
-## Notes
-- Les scores et classements nécessitent une connexion Internet ; les fichiers de l'application sont mis en cache pour le lancement hors ligne.
-- Les données peuvent être temporairement indisponibles. Le bouton **Actualiser** relance les requêtes.
-- La PWA ne dispose pas encore de notifications push ni de compte utilisateur.
+## CSV
+Le bouton « Télécharger le modèle CSV » fournit les en-têtes et une ligne d’exemple. Colonnes :
+`date,home,away,q1_home,q1_away,q2_home,q2_away,q3_home,q3_away,q4_home,q4_away,odds_over`
 
+Les scores sont les points marqués dans chaque quart-temps, pas les scores cumulés. `odds_over` est une cote décimale historique pré-match pour « prolongation : oui ». Laisser vide si indisponible. Les résultats de ROI ne sont pertinents que si les cotes sont authentiques, datées et réellement disponibles avant les matchs.
 
-### Statistiques des matchs nuls
-Le classement affiche désormais les matchs joués (MJ), les nuls et le pourcentage de nuls. En NBA officielle, ces deux dernières valeurs sont toujours à zéro, car les matchs à égalité sont départagés en prolongation.
+## Limites importantes
+- Aucun bookmaker ni argent réel n’est connecté.
+- Le modèle v1 est un taux de base, pas un modèle prédictif avancé par équipe. Une simulation positive sur un petit échantillon ne prouve pas qu’une stratégie est rentable.
+- L’application ne récupère pas automatiquement l’historique des scores quart par quart ni les cotes archivées. Ces données doivent être importées.
+- Les données Overtime Lab restent dans le navigateur de l’utilisateur et ne sont pas synchronisées entre appareils.
+- Les scores du site viennent d’une API publique tierce susceptible de changer.
+
+## Publication GitHub Pages
+Décompresser l’archive et publier le contenu du dossier `nba-stats-pwa` à la racine de la branche `main` (ou copier ses fichiers dans la racine existante). Le service worker utilise un cache `nba-pulse-v3` pour déclencher le renouvellement du cache.
